@@ -20,4 +20,7 @@ def load_dataset() -> pd.DataFrame:
     df = pd.read_csv(path)
     if df.empty:
         raise ValueError(f"Dataset at {path} is empty.")
+    # Kaggle file uses Carbon_Emission_tCO2e_TARGET; normalize for config/reporting.
+    if "Carbon_Emission_tCO2e_TARGET" in df.columns:
+        df = df.rename(columns={"Carbon_Emission_tCO2e_TARGET": "Carbon_Emission_tCO2e"})
     return df

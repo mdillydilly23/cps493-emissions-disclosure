@@ -19,6 +19,9 @@ results/*
 # Jupyter
 .ipynb_checkpoints/
 
+# Matplotlib cache (optional MPLCONFIGDIR in project)
+.matplotlib_cache/
+
 # OS / IDE
 .DS_Store
 .idea/
