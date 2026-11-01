@@ -15,26 +15,36 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 
 from src.config import CLASSIFICATION_TARGET, LEAKAGE_COLS, RESULTS_DIR
-from src.preprocess import build_xy, clean_data, company_train_test_split, make_feature_pipeline
-from src.load_data import load_green_miles
+from src.load_data import load_dataset
+from src.preprocess import (
+    add_high_emitter_labels,
+    build_xy,
+    clean_data,
+    company_train_test_split,
+    feature_column_lists,
+    make_feature_pipeline,
+)
 
 
 def classification_drop_cols() -> list[str]:
-    # Greenwashing flag is derived from discrepancy; never use discrepancy or raw both emissions.
-    return LEAKAGE_COLS + [CLASSIFICATION_TARGET]
+    return [*LEAKAGE_COLS, CLASSIFICATION_TARGET]
 
 
 def train_and_evaluate() -> dict:
-    df = clean_data(load_green_miles())
+    df = clean_data(load_dataset())
     train_df, test_df = company_train_test_split(df)
+    train_df, test_df = add_high_emitter_labels(train_df, test_df)
 
+    numeric, categorical = feature_column_lists(
+        train_df, classification_drop_cols()
+    )
     drop = classification_drop_cols()
     X_train, y_train = build_xy(train_df, CLASSIFICATION_TARGET, drop)
     X_test, y_test = build_xy(test_df, CLASSIFICATION_TARGET, drop)
 
     model = Pipeline(
         [
-            ("prep", make_feature_pipeline()),
+            ("prep", make_feature_pipeline(numeric, categorical)),
             (
                 "clf",
                 LogisticRegression(max_iter=2000, random_state=42, class_weight="balanced"),
@@ -79,7 +89,7 @@ def _save_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> None:
     im = ax.imshow(cm, cmap="Blues")
     ax.set_xticks([0, 1], labels=["Pred 0", "Pred 1"])
     ax.set_yticks([0, 1], labels=["True 0", "True 1"])
-    ax.set_xlabel("Predicted greenwashing flag")
+    ax.set_xlabel("Predicted high emitter")
     ax.set_ylabel("Actual")
     ax.set_title("Logistic regression — test confusion matrix")
     for i in range(len(labels)):

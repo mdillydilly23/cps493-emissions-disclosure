@@ -10,7 +10,7 @@ venv/
 data/raw/*.csv
 !data/raw/.gitkeep
 !data/raw/README.md
-!data/raw/green_miles_sample.csv
+!data/raw/carbon_emission_sample.csv
 
 # Outputs
 results/*

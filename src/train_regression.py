@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,26 +8,33 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 
-from src.config import LEAKAGE_COLS, REGRESSION_TARGET, RESULTS_DIR
-from src.preprocess import build_xy, clean_data, company_train_test_split, make_feature_pipeline
-from src.load_data import load_green_miles
+from src.config import CLASSIFICATION_TARGET, LEAKAGE_COLS, REGRESSION_TARGET, RESULTS_DIR
+from src.load_data import load_dataset
+from src.preprocess import (
+    build_xy,
+    clean_data,
+    company_train_test_split,
+    feature_column_lists,
+    make_feature_pipeline,
+)
 
 
 def regression_drop_cols() -> list[str]:
-    return LEAKAGE_COLS + [REGRESSION_TARGET]
+    return [*LEAKAGE_COLS, CLASSIFICATION_TARGET]
 
 
 def train_and_evaluate() -> dict:
-    df = clean_data(load_green_miles())
+    df = clean_data(load_dataset())
     train_df, test_df = company_train_test_split(df)
 
+    numeric, categorical = feature_column_lists(train_df, regression_drop_cols())
     drop = regression_drop_cols()
     X_train, y_train = build_xy(train_df, REGRESSION_TARGET, drop)
     X_test, y_test = build_xy(test_df, REGRESSION_TARGET, drop)
 
     model = Pipeline(
         [
-            ("prep", make_feature_pipeline()),
+            ("prep", make_feature_pipeline(numeric, categorical)),
             ("reg", LinearRegression()),
         ]
     )
@@ -66,7 +72,7 @@ def _save_regression_plot(y_true: np.ndarray, y_pred: np.ndarray) -> None:
     ax.scatter(y_true, y_pred, alpha=0.6, edgecolors="k", linewidths=0.3)
     lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
     ax.plot(lims, lims, "r--", label="Ideal")
-    ax.set_xlabel("Actual emissions discrepancy (tons CO₂)")
+    ax.set_xlabel("Actual carbon emissions (tCO₂e)")
     ax.set_ylabel("Predicted")
     ax.set_title("Linear regression — test set")
     ax.legend()

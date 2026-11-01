@@ -4,37 +4,23 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data" / "raw"
 RESULTS_DIR = ROOT / "results"
 
-FULL_DATA = DATA_DIR / "green_miles.csv"
-SAMPLE_DATA = DATA_DIR / "green_miles_sample.csv"
+FULL_DATA = DATA_DIR / "carbon_emission.csv"
+SAMPLE_DATA = DATA_DIR / "carbon_emission_sample.csv"
 
 COMPANY_COL = "Company_ID"
-REGRESSION_TARGET = "Emissions_Discrepancy"
-CLASSIFICATION_TARGET = "Greenwashing_Flag"
+DATE_COL = "Date"
 
-# Leakage: do not use these as features for either task.
+REGRESSION_TARGET = "Carbon_Emission_tCO2e"
+CLASSIFICATION_TARGET = "High_Emitter_Flag"
+
+# Labels derived from emissions; never use as features.
 LEAKAGE_COLS = [
-    "Reported_CO2_Emissions",
-    "Calculated_CO2_Emissions",
-    "Emissions_Discrepancy",
-    "Greenwashing_Flag",
+    REGRESSION_TARGET,
+    CLASSIFICATION_TARGET,
 ]
 
-NUMERIC_FEATURES = [
-    "Year",
-    "Fleet_Size",
-    "Avg_Vehicle_Age",
-    "Total_Distance_km",
-    "Payload_ton_km",
-    "Carbon_Credits_Purchased",
-    "Delivery_Efficiency",
-    "Avg_Fuel_Consumption",
-    "EU_ETS_Compliance",
-    "Weather_Impact_Index",
-    "ESG_Score",
-    "Sustainability_Budget",
-]
-
-CATEGORICAL_FEATURES = ["Country", "Industry_Sector", "Fleet_Type"]
+# High_Emitter_Flag = 1 when emissions exceed this quantile on the training split.
+HIGH_EMITTER_TRAIN_QUANTILE = 0.75
 
 RANDOM_STATE = 42
 TEST_COMPANY_FRACTION = 0.2

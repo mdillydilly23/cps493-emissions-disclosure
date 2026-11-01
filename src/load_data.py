@@ -15,7 +15,7 @@ def resolve_data_path() -> Path:
     )
 
 
-def load_green_miles() -> pd.DataFrame:
+def load_dataset() -> pd.DataFrame:
     path = resolve_data_path()
     df = pd.read_csv(path)
     if df.empty:

@@ -1,8 +1,8 @@
-# CPS493 / CPS536 — Emissions Disclosure Gap (ML Project)
+# CPS493 / CPS536 — Corporate Carbon Emissions (ML Project)
 
-Regression and classification on corporate logistics and emissions data, motivated by gaps between **reported** and **physics-based (calculated)** CO₂ estimates — related to satellite-vs-disclosure validation work (e.g. Thermal Ledger).
+Regression and classification on **operational and ESG-style features** to predict daily **carbon emissions (tCO₂e)** and flag **high-emitter** days for companies — motivated by corporate carbon footprint forecasting and disclosure accountability.
 
-**Dataset:** [Green Miles: Corporate Logistics & Carbon Emissions](https://www.kaggle.com/datasets/chaitanyajamble/green-milescorporate-logistics-and-carbon-emissions) (Kaggle).
+**Dataset:** [Carbon Emission Forecasting Dataset](https://www.kaggle.com/datasets/freshersstaff/carbon-emission-forecasting-dataset) (Kaggle).
 
 ## Setup (Mac, venv)
 
@@ -15,10 +15,10 @@ pip install -r requirements.txt
 Download the Kaggle CSV and place it at:
 
 ```text
-data/raw/green_miles.csv
+data/raw/carbon_emission.csv
 ```
 
-See `data/raw/README.md` for column expectations. A small **sample** file is included so scripts run before you download the full dataset.
+See `data/raw/README.md` for details. A small **sample** file is included so scripts run before you download the full dataset.
 
 ## Run preliminary pipeline
 
@@ -39,6 +39,11 @@ Outputs metrics under `results/` and figures for your report.
 | `src/train_classification.py` | Logistic regression (Task B) |
 | `scripts/run_preliminary.py` | End-to-end preliminary run |
 
+## Tasks
+
+- **Regression (Task A):** predict `Carbon_Emission_tCO2e` from energy, production, logistics, and related features.
+- **Classification (Task B):** predict `High_Emitter_Flag` (emissions above the 75th percentile on the **training** split).
+
 ## Course algorithms (planned)
 
 - **Done / preliminary:** Linear regression, logistic regression  
@@ -46,7 +51,11 @@ Outputs metrics under `results/` and figures for your report.
 
 ## Leakage rules
 
-Do not use `Reported_CO2_Emissions`, `Calculated_CO2_Emissions`, or `Emissions_Discrepancy` as features when predicting `Greenwashing_Flag`. For regression on `Emissions_Discrepancy`, exclude both emission columns from features.
+Do not use `Carbon_Emission_tCO2e` or `High_Emitter_Flag` as features. The high-emitter label is derived from emissions using a threshold fit on training data only.
+
+## Dataset change (Fall 2026)
+
+This repo initially used [Green Miles](https://www.kaggle.com/datasets/chaitanyajamble/green-milescorporate-logistics-and-carbon-emissions). That Kaggle page describes ~2,500 companies, but the only downloadable file was a small `README.md` containing **25 rows** of CSV—not the advertised scale. The project moved to the Carbon Emission Forecasting dataset (~3.4 MB CSV, daily company records) for meaningful train/test evaluation.
 
 ## Author
 
