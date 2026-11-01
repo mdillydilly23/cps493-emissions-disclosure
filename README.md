@@ -50,4 +50,4 @@ Do not use `Reported_CO2_Emissions`, `Calculated_CO2_Emissions`, or `Emissions_D
 
 ## Author
 
-Undergraduate project — SUNY New Paltz ML & CPS493-01 / CPS536-01.
+Mitchell Davis — Undergraduate project, SUNY New Paltz ML & CPS493-01 / CPS536-01.
