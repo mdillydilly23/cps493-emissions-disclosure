@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Data (download Green Miles from Kaggle into data/raw/)
+data/raw/*.csv
+!data/raw/.gitkeep
+!data/raw/README.md
+!data/raw/green_miles_sample.csv
+
+# Outputs
+results/*
+!results/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
