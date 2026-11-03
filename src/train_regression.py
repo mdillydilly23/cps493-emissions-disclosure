@@ -1,81 +1,114 @@
 from __future__ import annotations
 
-import json
-
-import matplotlib.pyplot as plt
-import numpy as np
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.pipeline import Pipeline
+from sklearn.tree import DecisionTreeRegressor
 
-from src.config import CLASSIFICATION_TARGET, LEAKAGE_COLS, REGRESSION_TARGET, RESULTS_DIR
-from src.load_data import load_dataset
-from src.preprocess import (
-    build_xy,
-    clean_data,
-    company_train_test_split,
-    feature_column_lists,
-    make_feature_pipeline,
+from src.config import (
+    CLASSIFICATION_TARGET,
+    FEATURE_SET_DISCLOSURE,
+    FEATURE_SET_OPERATIONAL,
+    LEAKAGE_COLS,
+    RANDOM_STATE,
+    REGRESSION_TARGET,
+    TREE_MAX_DEPTH,
+    TREE_MIN_SAMPLES_LEAF,
 )
+from src.evaluation import (
+    fit_regression_model,
+    save_feature_importance,
+    save_overfitting_bars,
+    save_regression_rmse_bars,
+    save_regression_scatter,
+)
+from src.load_data import load_dataset
+from src.preprocess import build_xy, clean_data, company_train_test_split
 
 
 def regression_drop_cols() -> list[str]:
     return [*LEAKAGE_COLS, CLASSIFICATION_TARGET]
 
 
-def train_and_evaluate() -> dict:
+def _regression_models() -> dict:
+    return {
+        "linear_regression": LinearRegression(),
+        "decision_tree_limited": DecisionTreeRegressor(
+            max_depth=TREE_MAX_DEPTH,
+            min_samples_leaf=TREE_MIN_SAMPLES_LEAF,
+            random_state=RANDOM_STATE,
+        ),
+        "decision_tree_unlimited": DecisionTreeRegressor(
+            max_depth=None,
+            min_samples_leaf=1,
+            random_state=RANDOM_STATE,
+        ),
+    }
+
+
+def run_all_feature_sets() -> dict:
     df = clean_data(load_dataset())
     train_df, test_df = company_train_test_split(df)
-
-    numeric, categorical = feature_column_lists(train_df, regression_drop_cols())
     drop = regression_drop_cols()
-    X_train, y_train = build_xy(train_df, REGRESSION_TARGET, drop)
-    X_test, y_test = build_xy(test_df, REGRESSION_TARGET, drop)
+    all_results: dict = {}
 
-    model = Pipeline(
-        [
-            ("prep", make_feature_pipeline(numeric, categorical)),
-            ("reg", LinearRegression()),
-        ]
-    )
-    model.fit(X_train, y_train)
+    for feature_set in (FEATURE_SET_OPERATIONAL, FEATURE_SET_DISCLOSURE):
+        set_results: dict = {}
+        pipes: dict = {}
 
-    metrics = {}
-    for name, X, y in [("train", X_train, y_train), ("test", X_test, y_test)]:
-        pred = model.predict(X)
-        metrics[name] = {
-            "rmse": float(np.sqrt(mean_squared_error(y, pred))),
-            "mae": float(mean_absolute_error(y, pred)),
-            "r2": float(r2_score(y, pred)),
-        }
+        for name, est in _regression_models().items():
+            pipe, metrics = fit_regression_model(
+                train_df, test_df, est, drop, feature_set
+            )
+            pipes[name] = pipe
+            set_results[name] = {
+                "model": name,
+                "target": REGRESSION_TARGET,
+                "feature_set": feature_set,
+                "metrics": metrics,
+            }
 
-    pred_test = model.predict(X_test)
-    _save_regression_plot(y_test, pred_test)
+        save_regression_rmse_bars(set_results, feature_set)
 
-    out = {
+        X_test, y_test = build_xy(test_df, REGRESSION_TARGET, drop, feature_set=feature_set)
+        save_regression_scatter(
+            y_test,
+            pipes["linear_regression"].predict(X_test),
+            f"Linear regression — test ({feature_set})",
+            f"regression_scatter_linear_{feature_set}.png",
+        )
+        save_regression_scatter(
+            y_test,
+            pipes["decision_tree_limited"].predict(X_test),
+            f"Depth-limited tree — test ({feature_set})",
+            f"regression_scatter_tree_{feature_set}.png",
+        )
+
+        save_overfitting_bars(
+            set_results["decision_tree_limited"]["metrics"],
+            set_results["decision_tree_unlimited"]["metrics"],
+            feature_set,
+        )
+
+        importance = save_feature_importance(
+            pipes["decision_tree_limited"],
+            feature_set,
+            "decision_tree_limited",
+        )
+        set_results["top_feature_importance"] = importance
+        all_results[feature_set] = set_results
+
+    return {
         "task": "regression",
-        "target": REGRESSION_TARGET,
-        "model": "LinearRegression",
-        "metrics": metrics,
         "n_train_rows": len(train_df),
         "n_test_rows": len(test_df),
         "n_train_companies": int(train_df["Company_ID"].nunique()),
         "n_test_companies": int(test_df["Company_ID"].nunique()),
+        "feature_sets": all_results,
     }
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    (RESULTS_DIR / "regression_metrics.json").write_text(json.dumps(out, indent=2))
-    return out
 
 
-def _save_regression_plot(y_true: np.ndarray, y_pred: np.ndarray) -> None:
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.scatter(y_true, y_pred, alpha=0.6, edgecolors="k", linewidths=0.3)
-    lims = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
-    ax.plot(lims, lims, "r--", label="Ideal")
-    ax.set_xlabel("Actual carbon emissions (tCO₂e)")
-    ax.set_ylabel("Predicted")
-    ax.set_title("Linear regression — test set")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(RESULTS_DIR / "regression_test_scatter.png", dpi=150)
-    plt.close(fig)
+def train_and_evaluate() -> dict:
+    """Legacy entry: operational set, linear regression only."""
+    out = run_all_feature_sets()
+    linear = out["feature_sets"][FEATURE_SET_OPERATIONAL]["linear_regression"]
+    linear["model"] = "LinearRegression"
+    return linear

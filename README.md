@@ -55,16 +55,18 @@ The script prints which data file it uses, then trains both tasks and writes out
 
 ## Machine learning tasks
 
-| Task | Target | Model (preliminary) |
-|------|--------|---------------------|
-| **A — Regression** | `Carbon_Emission_tCO2e` | Linear regression |
-| **B — Classification** | `High_Emitter_Flag` | Logistic regression |
+| Task | Target | Models |
+|------|--------|--------|
+| **A — Regression** | `Carbon_Emission_tCO2e` | Linear regression; depth-limited and unrestricted decision trees |
+| **B — Classification** | `High_Emitter_Flag` | Logistic regression; linear and RBF SVM; decision tree classifier |
+
+Each task is evaluated on two feature sets: **operational** (all usable predictors) and **disclosure** (energy and carbon-tax columns removed). **GroupKFold** (k=5) on training companies supplements the company holdout test split. A **k-means** check clusters company averages with emissions held out.
 
 **High-emitter label:** `1` when emissions exceed the **75th percentile on the training split only** (threshold not fit on test data).
 
 **Evaluation split:** `GroupShuffleSplit` on `Company_ID` (~80% / ~20% companies) so test days are from held-out companies, not random rows from the same firm.
 
-**Preprocessing:** parse dates → `Year` / `Month`; coerce numerics; median imputation; one-hot categoricals; `StandardScaler` on numeric features.
+**Preprocessing:** parse dates → `Year` / `Month`; coerce numerics; `SimpleImputer` + `StandardScaler` on numerics and one-hot categoricals (fit on training data only inside each model pipeline).
 
 ---
 
@@ -80,11 +82,13 @@ After `run_preliminary.py`:
 
 | File | Description |
 |------|-------------|
-| `regression_metrics.json` | Train/test RMSE, MAE, R² |
-| `regression_test_scatter.png` | Predicted vs actual (test) |
-| `classification_metrics.json` | Train/test accuracy, F1, ROC-AUC |
-| `classification_confusion_matrix.png` | Test confusion matrix |
-| `classification_roc.png` | Test ROC curve |
+| `model_comparison.json` | Full comparison (both feature sets, all models, k-means) |
+| `regression_metrics.json` | Operational linear regression (legacy name for report) |
+| `classification_metrics.json` | Operational logistic regression (legacy name for report) |
+| `regression_test_scatter.png` | Operational linear regression scatter (test) |
+| `classification_confusion_matrix.png` | Operational logistic confusion matrix |
+| `classification_roc.png` | Operational ROC overlay |
+| `correlations_with_target.png`, `regression_rmse_*.png`, `tree_overfitting_*.png`, `classification_roc_*.png`, `kmeans_elbow.png` | Presentation / brief figures |
 
 ---
 
@@ -97,7 +101,8 @@ After `run_preliminary.py`:
 | `src/preprocess.py` | Cleaning, features, company-level split |
 | `src/train_regression.py` | Task A |
 | `src/train_classification.py` | Task B |
-| `scripts/run_preliminary.py` | End-to-end preliminary run |
+| `scripts/run_preliminary.py` | Full model comparison + clustering |
+| `report/build_project_brief.py` | Local Word brief (gitignored `report/` folder) |
 | `scripts/installcheck.py` | Dependency smoke test |
 
 ---
@@ -106,8 +111,8 @@ After `run_preliminary.py`:
 
 | Status | Algorithms & evaluation |
 |--------|-------------------------|
-| **Done (Oct checkpoint)** | Data pipeline; linear + logistic regression; train/test metrics; ROC (classification) |
-| **Planned (Dec)** | SVM and/or decision trees; k-fold cross-validation; model comparison in report |
+| **Done** | Pipeline imputation inside sklearn; operational vs disclosure features; linear + tree regression; logistic + linear/RBF SVM + tree classification; grouped k-fold; k-means; `model_comparison.json` |
+| **Presentation** | Local `report/project_brief.docx` via `python report/build_project_brief.py` after a results run |
 
 ---
 

@@ -1,115 +1,123 @@
 from __future__ import annotations
 
-import json
-
-import matplotlib.pyplot as plt
-import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    f1_score,
-    roc_auc_score,
-    roc_curve,
-)
-from sklearn.pipeline import Pipeline
+from sklearn.svm import LinearSVC, SVC
+from sklearn.tree import DecisionTreeClassifier
 
-from src.config import CLASSIFICATION_TARGET, LEAKAGE_COLS, RESULTS_DIR
-from src.load_data import load_dataset
-from src.preprocess import (
-    add_high_emitter_labels,
-    build_xy,
-    clean_data,
-    company_train_test_split,
-    feature_column_lists,
-    make_feature_pipeline,
+from src.config import (
+    CLASSIFICATION_TARGET,
+    FEATURE_SET_DISCLOSURE,
+    FEATURE_SET_OPERATIONAL,
+    LEAKAGE_COLS,
+    RANDOM_STATE,
+    TREE_MAX_DEPTH,
+    TREE_MIN_SAMPLES_LEAF,
 )
+from src.evaluation import (
+    fit_classification_model,
+    illustrative_cost,
+    save_confusion_matrix_plot,
+    save_feature_importance,
+    save_roc_overlay,
+)
+from src.load_data import load_dataset
+from src.preprocess import clean_data, company_train_test_split
 
 
 def classification_drop_cols() -> list[str]:
     return [*LEAKAGE_COLS, CLASSIFICATION_TARGET]
 
 
-def train_and_evaluate() -> dict:
+def _classification_models() -> list[tuple[str, object, bool]]:
+    return [
+        (
+            "logistic_regression",
+            LogisticRegression(
+                max_iter=2000, random_state=RANDOM_STATE, class_weight="balanced"
+            ),
+            False,
+        ),
+        (
+            "linear_svc",
+            LinearSVC(max_iter=3000, random_state=RANDOM_STATE, class_weight="balanced"),
+            True,
+        ),
+        (
+            "rbf_svc",
+            SVC(
+                kernel="rbf",
+                random_state=RANDOM_STATE,
+                class_weight="balanced",
+            ),
+            True,
+        ),
+        (
+            "decision_tree_classifier",
+            DecisionTreeClassifier(
+                max_depth=TREE_MAX_DEPTH,
+                min_samples_leaf=TREE_MIN_SAMPLES_LEAF,
+                random_state=RANDOM_STATE,
+                class_weight="balanced",
+            ),
+            False,
+        ),
+    ]
+
+
+def run_all_feature_sets() -> dict:
     df = clean_data(load_dataset())
     train_df, test_df = company_train_test_split(df)
-    train_df, test_df = add_high_emitter_labels(train_df, test_df)
-
-    numeric, categorical = feature_column_lists(
-        train_df, classification_drop_cols()
-    )
     drop = classification_drop_cols()
-    X_train, y_train = build_xy(train_df, CLASSIFICATION_TARGET, drop)
-    X_test, y_test = build_xy(test_df, CLASSIFICATION_TARGET, drop)
+    all_results: dict = {}
 
-    model = Pipeline(
-        [
-            ("prep", make_feature_pipeline(numeric, categorical)),
-            (
-                "clf",
-                LogisticRegression(max_iter=2000, random_state=42, class_weight="balanced"),
-            ),
-        ]
-    )
-    model.fit(X_train, y_train)
+    for feature_set in (FEATURE_SET_OPERATIONAL, FEATURE_SET_DISCLOSURE):
+        set_results: dict = {}
+        roc_curves: list[tuple[str, object, object]] = []
 
-    metrics = {}
-    for name, X, y in [("train", X_train, y_train), ("test", X_test, y_test)]:
-        pred = model.predict(X)
-        proba = model.predict_proba(X)[:, 1]
-        metrics[name] = {
-            "accuracy": float(accuracy_score(y, pred)),
-            "f1": float(f1_score(y, pred, zero_division=0)),
-            "roc_auc": float(roc_auc_score(y, proba)) if len(np.unique(y)) > 1 else None,
-        }
+        for name, est, use_df in _classification_models():
+            pipe, metrics, y_test, pred_test, score_test = fit_classification_model(
+                train_df,
+                test_df,
+                est,
+                drop,
+                feature_set,
+                use_decision_function=use_df,
+                skip_cv=(name == "rbf_svc"),
+            )
+            cost = illustrative_cost(y_test, pred_test)
+            set_results[name] = {
+                "model": name,
+                "target": CLASSIFICATION_TARGET,
+                "feature_set": feature_set,
+                "metrics": metrics,
+                "illustrative_cost_test": cost,
+            }
+            save_confusion_matrix_plot(
+                y_test,
+                pred_test,
+                f"{name} — test ({feature_set})",
+                f"classification_cm_{name}_{feature_set}.png",
+            )
+            if score_test is not None:
+                roc_curves.append((name, y_test, score_test))
 
-    pred_test = model.predict(X_test)
-    proba_test = model.predict_proba(X_test)[:, 1]
-    _save_confusion_matrix(y_test, pred_test)
-    if len(np.unique(y_test)) > 1:
-        _save_roc_curve(y_test, proba_test)
+            if name == "decision_tree_classifier":
+                set_results["top_feature_importance"] = save_feature_importance(
+                    pipe, feature_set, "decision_tree_classifier"
+                )
 
-    out = {
+        save_roc_overlay(roc_curves, feature_set)
+        all_results[feature_set] = set_results
+
+    return {
         "task": "classification",
-        "target": CLASSIFICATION_TARGET,
-        "model": "LogisticRegression",
-        "metrics": metrics,
-        "n_train_rows": len(train_df),
-        "n_test_rows": len(test_df),
+        "feature_sets": all_results,
     }
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    (RESULTS_DIR / "classification_metrics.json").write_text(json.dumps(out, indent=2))
-    return out
 
 
-def _save_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> None:
-    labels = [0, 1]
-    cm = confusion_matrix(y_true, y_pred, labels=labels)
-    fig, ax = plt.subplots(figsize=(5, 4))
-    im = ax.imshow(cm, cmap="Blues")
-    ax.set_xticks([0, 1], labels=["Pred 0", "Pred 1"])
-    ax.set_yticks([0, 1], labels=["True 0", "True 1"])
-    ax.set_xlabel("Predicted high emitter")
-    ax.set_ylabel("Actual")
-    ax.set_title("Logistic regression — test confusion matrix")
-    for i in range(len(labels)):
-        for j in range(len(labels)):
-            ax.text(j, i, str(cm[i, j]), ha="center", va="center", color="black")
-    fig.colorbar(im, ax=ax, fraction=0.046)
-    fig.tight_layout()
-    fig.savefig(RESULTS_DIR / "classification_confusion_matrix.png", dpi=150)
-    plt.close(fig)
-
-
-def _save_roc_curve(y_true: np.ndarray, y_score: np.ndarray) -> None:
-    fpr, tpr, _ = roc_curve(y_true, y_score)
-    fig, ax = plt.subplots(figsize=(5, 4))
-    ax.plot(fpr, tpr, label="Logistic regression")
-    ax.plot([0, 1], [0, 1], "k--", label="Chance")
-    ax.set_xlabel("False positive rate")
-    ax.set_ylabel("True positive rate")
-    ax.set_title("ROC curve (test)")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(RESULTS_DIR / "classification_roc.png", dpi=150)
-    plt.close(fig)
+def train_and_evaluate() -> dict:
+    """Legacy entry: operational set, logistic regression only."""
+    out = run_all_feature_sets()
+    logit = out["feature_sets"][FEATURE_SET_OPERATIONAL]["logistic_regression"]
+    logit["model"] = "LogisticRegression"
+    return logit

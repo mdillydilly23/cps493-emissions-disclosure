@@ -3,7 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
 from sklearn.model_selection import GroupShuffleSplit
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from src.config import (
@@ -38,39 +40,56 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         if col in (CLASSIFICATION_TARGET,):
             continue
         out[col] = pd.to_numeric(out[col], errors="coerce")
-    medians = out[numeric_cols].median(numeric_only=True)
-    out[numeric_cols] = out[numeric_cols].fillna(medians)
 
     for col in out.select_dtypes(include=["object"]).columns:
-        out[col] = out[col].astype(str).fillna("Unknown")
+        out[col] = out[col].astype(str).replace({"nan": "Unknown", "None": "Unknown"})
+        out[col] = out[col].fillna("Unknown")
 
+    return out
+
+
+def high_emitter_threshold(reference: pd.Series, quantile: float = HIGH_EMITTER_TRAIN_QUANTILE) -> float:
+    return float(reference.quantile(quantile))
+
+
+def apply_high_emitter_labels(
+    df: pd.DataFrame, threshold: float
+) -> pd.DataFrame:
+    out = df.copy()
+    out[CLASSIFICATION_TARGET] = (out[REGRESSION_TARGET] > threshold).astype(int)
     return out
 
 
 def add_high_emitter_labels(
     train_df: pd.DataFrame, test_df: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    threshold = train_df[REGRESSION_TARGET].quantile(HIGH_EMITTER_TRAIN_QUANTILE)
-    train = train_df.copy()
-    test = test_df.copy()
-    train[CLASSIFICATION_TARGET] = (
-        train[REGRESSION_TARGET] > threshold
-    ).astype(int)
-    test[CLASSIFICATION_TARGET] = (test[REGRESSION_TARGET] > threshold).astype(
-        int
+    threshold = high_emitter_threshold(train_df[REGRESSION_TARGET])
+    return apply_high_emitter_labels(train_df, threshold), apply_high_emitter_labels(
+        test_df, threshold
     )
-    return train, test
+
+
+def feature_set_extra_drop(feature_set: str) -> list[str]:
+    from src.config import DISCLOSURE_DROP_COLS, FEATURE_SET_DISCLOSURE
+
+    if feature_set == FEATURE_SET_DISCLOSURE:
+        return list(DISCLOSURE_DROP_COLS)
+    return []
 
 
 def feature_column_lists(
-    df: pd.DataFrame, extra_drop: list[str] | None = None
+    df: pd.DataFrame,
+    extra_drop: list[str] | None = None,
+    feature_set: str | None = None,
 ) -> tuple[list[str], list[str]]:
+    fs_drop = feature_set_extra_drop(feature_set) if feature_set else []
     drop = {
         COMPANY_COL,
         DATE_COL,
         CLASSIFICATION_TARGET,
         REGRESSION_TARGET,
         *LEAKAGE_COLS,
+        *fs_drop,
         *(extra_drop or []),
     }
     candidates = [c for c in df.columns if c not in drop]
@@ -108,13 +127,30 @@ def make_feature_pipeline(
     transformers = []
     if numeric_features:
         transformers.append(
-            ("num", StandardScaler(), numeric_features),
+            (
+                "num",
+                Pipeline(
+                    [
+                        ("impute", SimpleImputer(strategy="median")),
+                        ("scale", StandardScaler()),
+                    ]
+                ),
+                numeric_features,
+            ),
         )
     if categorical_features:
         transformers.append(
             (
                 "cat",
-                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                Pipeline(
+                    [
+                        ("impute", SimpleImputer(strategy="most_frequent")),
+                        (
+                            "onehot",
+                            OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                        ),
+                    ]
+                ),
                 categorical_features,
             ),
         )
@@ -124,9 +160,20 @@ def make_feature_pipeline(
 
 
 def build_xy(
-    df: pd.DataFrame, target: str, drop_cols: list[str]
+    df: pd.DataFrame,
+    target: str,
+    drop_cols: list[str],
+    feature_set: str | None = None,
 ) -> tuple[pd.DataFrame, np.ndarray]:
-    always_drop = {COMPANY_COL, DATE_COL, target, *drop_cols, *LEAKAGE_COLS}
+    fs_drop = feature_set_extra_drop(feature_set) if feature_set else []
+    always_drop = {
+        COMPANY_COL,
+        DATE_COL,
+        target,
+        *drop_cols,
+        *LEAKAGE_COLS,
+        *fs_drop,
+    }
     feature_cols = [c for c in df.columns if c not in always_drop]
     X = df[feature_cols]
     y = df[target].values
